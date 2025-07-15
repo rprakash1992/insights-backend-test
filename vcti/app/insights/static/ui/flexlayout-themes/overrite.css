@@ -1,0 +1,38 @@
+.flexlayout__layout {
+  --color-background: transparent;
+}
+
+.flexlayout__tab {
+  background-color: transparent !important;
+}
+
+.flexlayout__tabset {
+  background-color: transparent;
+}
+
+/* .flexlayout__tab_button--selected {
+    background-color: transparent !important;
+  } */
+
+.flexlayout__tabset_tabbar_outer {
+  background-color: transparent;
+  background-image: none;
+}
+
+/* .flexlayout__tab_button {
+    padding: 0;
+    box-shadow: none;
+  }
+  
+  .flexlayout__tab_button:hover {
+    background-color: transparent;
+  } */
+
+.flexlayout__border {
+  background-color: transparent;
+}
+
+/* .flexlayout__border_button {
+    margin: 0;
+    height: 34.8px;
+  } */

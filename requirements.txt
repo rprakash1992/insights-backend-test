@@ -1,0 +1,20 @@
+fastapi
+uvicorn
+python-dotenv
+watchfiles
+python-multipart
+PyYAML
+pydantic
+GitPython
+pyyaml-include
+case-converter
+inflection
+dotenv
+colorlog
+platformdirs
+# sqlalchemy
+# langchain
+# langchain-openai
+# langgraph
+# openai
+# langchain_community
