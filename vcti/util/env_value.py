@@ -27,12 +27,20 @@ class EnvValueDecoder:
         Retrieve the raw string value of an environment variable.
 
         Args:
-            var: Name of the environment variable
+            var: Environment variable name
 
         Returns:
-            The variable value as string or None if not set
+            The stripped variable value as string, or None if unset or blank
         """
-        return os.getenv(var)
+        value = os.getenv(var)
+        return value.strip() if value and value.strip() else None
+
+    @staticmethod
+    def _validate_default_type(
+        default: Any, allowed_types: Union[type, tuple], name: str
+    ):
+        if default is not None and not isinstance(default, allowed_types):
+            raise ValueError(f"Default must be {name} or None")
 
     @staticmethod
     def get_flag(
@@ -61,7 +69,7 @@ class EnvValueDecoder:
         if value is None:
             return default
 
-        value = value.strip().lower()
+        value = value.lower()
         true_set = (
             set(true_values) if true_values else EnvValueDecoder.DEFAULT_TRUE_VALUES
         )
@@ -96,15 +104,14 @@ class EnvValueDecoder:
         Raises:
             ValueError: If default is not an integer or None
         """
-        if default is not None and not isinstance(default, int):
-            raise ValueError("Default must be integer or None")
+        EnvValueDecoder._validate_default_type(default, int, "int")
 
         value = EnvValueDecoder.get_payload(var)
-        if value is None or value.strip() == "":
+        if value is None:
             return default
 
         try:
-            return int(value.strip())
+            return int(value)
         except ValueError:
             return default
 
@@ -123,14 +130,13 @@ class EnvValueDecoder:
         Raises:
             ValueError: If default is not string or None
         """
-        if default is not None and not isinstance(default, str):
-            raise ValueError("Default must be string or None")
+        EnvValueDecoder._validate_default_type(default, str, "string")
 
         value = EnvValueDecoder.get_payload(var)
-        return value.strip() if value else default
+        return value or default
 
     @staticmethod
-    def get_file_path(
+    def get_path(
         var: str, default: Optional[Union[str, Path]] = None
     ) -> Optional[Path]:
         """
@@ -146,12 +152,11 @@ class EnvValueDecoder:
         Raises:
             ValueError: If default is not Path/str or None
         """
-        if default is not None and not isinstance(default, (str, Path)):
-            raise ValueError("Default must be Path/str or None")
+        EnvValueDecoder._validate_default_type(default, (str, Path), "path string")
 
         value = EnvValueDecoder.get_payload(var)
         if value is not None:
-            return Path(value.strip())
+            return Path(value)
         if default is not None:
             return default if isinstance(default, Path) else Path(default)
         return default
@@ -171,15 +176,14 @@ class EnvValueDecoder:
         Raises:
             ValueError: If default is not numeric or None
         """
-        if default is not None and not isinstance(default, (float, int)):
-            raise ValueError("Default must be float/int or None")
+        EnvValueDecoder._validate_default_type(default, (float, int), "float/int")
 
         value = EnvValueDecoder.get_payload(var)
-        if value is None or value.strip() == "":
+        if value is None:
             return default
 
         try:
-            return float(value.strip())
+            return float(value)
         except ValueError:
             return default
 
@@ -197,13 +201,13 @@ class EnvJsonValueDecoder(EnvValueDecoder):
             default: Fallback value if variable not set or invalid
 
         Returns:
-            Decoded Python object or default if invalid
+            Decoded Python object or default if not set or if parsing fails
         """
         value = EnvValueDecoder.get_payload(var)
         if not value:
             return default
 
         try:
-            return json.loads(value.strip())
+            return json.loads(value)
         except (json.JSONDecodeError, TypeError):
             return default

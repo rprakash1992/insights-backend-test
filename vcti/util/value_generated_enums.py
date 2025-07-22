@@ -9,7 +9,7 @@
 
 from enum import Enum
 from enum import auto as auto_enum_value
-from typing import Any, List, Callable
+from typing import Any, Callable, List
 
 import caseconverter
 import inflection
@@ -26,7 +26,7 @@ def create_enum_class(value_generator: Callable[[str], str]) -> type:
         An Enum class with the custom value generator.
     """
 
-    class DynamicEnum(Enum):
+    class DynamicEnum(str, Enum):
         @staticmethod
         def _generate_next_value_(
             name: str, start: int, count: int, last_values: List[Any]

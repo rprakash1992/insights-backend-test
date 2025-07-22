@@ -9,22 +9,11 @@
 Utility methods
 """
 
-import time
-import uuid
+from pathlib import Path
 
-def create_unique_str() -> str:
-    """
-    Generate a fixed-length unique identifier combining a timestamp and random string.
-    
-    Returns:
-        str: A 19-character string in the format: <10-digit timestamp>_<8-char random>
-        Example: "1689345678_ab3d7f2e"
-    
-    Note:
-        - Timestamp ensures temporal ordering
-        - UUID provides collision resistance
-        - Fixed length of 19 characters (10 + 1 + 8)
-    """
-    timestamp = str(int(time.time()))  # 10-digit timestamp
-    random_str = uuid.uuid4().hex[:8]  # 8-character random string
-    return f"{timestamp}_{random_str}"
+from vcti.util.short_uid import ShortUID
+
+
+def make_duplicate_name(path: Path) -> str:
+    """Generate a unique name for a duplicate file or directory."""
+    return f"{path.stem}_copy_{ShortUID.quick()}{path.suffix}"

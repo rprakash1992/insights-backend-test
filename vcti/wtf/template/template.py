@@ -9,102 +9,104 @@
 Template class provides methods to manage individual templates in a repository.
 """
 
-from pathlib import Path
-from typing import List
 import shutil
-import uuid
+from pathlib import Path
 
-from .file_manager import TemplateFileManager
-from .file_names import FileNames
-from .info import TemplateInfo
-from ..variable.list import Variables
-from ..yaml_reader import read_model, root_locator
+from starlette.responses import StreamingResponse
+
+from vcti.util.path_utils import FileNameValidator, validate_folder_access
+
+from .files import TemplateFiles
+from .runs import TemplateRuns
+from .utils import make_duplicate_name
+from .workflow_nodes import WorkflowNodes
 
 
 class Template:
-    def __init__(self, template_path: Path, repo_root: Path):
+    def __init__(self, template_path: Path):
         """
-        Main Template class composing metadata and file operations.
-        
+        Initializes a Template instance with a root path and its file operations handler.
+
         Args:
-            template_path: Absolute path to template directory
-            repo_root: Absolute path to repository root
+            template_path (Path): Absolute path to the template root directory.
+
+        Raises:
+            ValueError: If the provided path does not exist or is not a directory.
         """
+        validate_folder_access(template_path)
+
         self.path = template_path
-        self.repo_root = repo_root
-        self.files = TemplateFileManager(template_path, repo_root)
+        self.files = TemplateFiles(template_path)
+        self.workflow_nodes = WorkflowNodes(template_path)
+        self.runs = TemplateRuns(template_path)
 
     @property
     def id(self) -> str:
+        """
+        Returns the template ID, which is the name of the template directory.
+
+        Returns:
+            str: Template ID derived from directory name.
+        """
         return self.path.name
 
-    # Metadata operations
-    def get_info_file_path(self):
-        return self.path / FileNames.SOURCE_DIR / FileNames.INFO_YAML
+    def download(self) -> StreamingResponse:
+        """
+        Download the entire template directory as a `.vis` archive.
 
-    def get_variables_file_path(self):
-        return self.path / FileNames.SOURCE_DIR / FileNames.VARIABLES_YAML
+        Returns:
+            FileResponse: A response containing the zipped archive for download.
+        """
+        return self.files.download_directory(download_filename=f"{self.id}.vis")
 
-    def has_info_file(self) -> bool:
-        return self.get_info_file_path().exists()
+    def duplicate(self) -> "Template":
+        """
+        Creates a copy of the template with a new unique ID.
 
-    def get_info(self) -> TemplateInfo:
-        """Retrieves parsed template information"""
-        info_file_path = self.get_info_file_path()
-        if not info_file_path.exists():
-            raise FileNotFoundError(f"Info file not found at {info_file_path}")
-        return read_model(info_file_path, root_locator, TemplateInfo)
-
-    def get_variables(self) -> Variables:
-        """Retrieves template variables configuration"""
-        variables_file_path = self.get_variables_file_path()
-        if not variables_file_path.exists():
-            return Variables(root=[])
-        try:
-            return read_model(variables_file_path, root_locator, Variables)
-        except Exception as e:
-            raise RuntimeError(f"Failed to parse variables: {str(e)}")
-
-    # File operations
-    def download(self):
-        return self.files.download_directory(file_name=f'{self.id}.vis')
-
-    def upload_file(self, relative_path: List[str], file):
-        return self.files.upload_file(relative_path, file)
-
-    def get_file_tree(self, relative_path: List[str] = []):
-        return self.files.get_file_tree(relative_path)
-
-    # Template lifecycle operations
-    def duplicate(self) -> 'Template':
-        """Creates copy of template with new ID"""
-        new_id = f"{self.id}_copy_{uuid.uuid4().hex[:8]}"
-        new_path = self.path.parent / new_id
-        if new_path.exists():
-            raise FileExistsError(
-                f"Cannot duplicate template - target path already exists: {new_path}"
-            )
+        Returns:
+            Template: A new Template instance with the duplicated content.
+        """
+        while True:
+            new_id = make_duplicate_name(Path(self.id))
+            new_path = self.path.parent / new_id
+            if not new_path.exists():
+                break
 
         shutil.copytree(self.path, new_path)
-        return Template(new_path, self.repo_root)
+        return Template(new_path)
 
-    def rename(self, new_id: str) -> 'Template':
-        """Renames the template directory"""
+    def rename(self, new_id: str) -> "Template":
+        """
+        Renames the template directory to a new ID.
+
+        Args:
+            new_id (str): The new template ID.
+
+        Returns:
+            Template: The current instance with updated path and state.
+
+        Raises:
+            ValueError: If new_id is empty or invalid.
+            FileExistsError: If a template with new_id already exists.
+        """
+        new_id = new_id.strip()
         if not new_id:
-            raise ValueError("New template ID cannot be empty")
+            raise ValueError("New template ID cannot be empty.")
+
+        FileNameValidator.validate(new_id)
 
         new_path = self.path.parent / new_id
         if new_path.exists():
-            raise FileExistsError(
-                f"Cannot rename template - target path already exists: {new_path}"
-            )
+            raise FileExistsError(f"Template ID '{new_id}' already exists.")
 
         shutil.move(self.path, new_path)
         self.path = new_path
         # Update managers with new path
-        self.files = TemplateFileManager(new_path, self.repo_root)
+        self.files = TemplateFiles(self.path)
         return self
 
-    def delete(self):
-        """Deletes the template directory"""
+    def delete(self) -> None:
+        """
+        Deletes the template directory and all its contents.
+        """
         shutil.rmtree(self.path)

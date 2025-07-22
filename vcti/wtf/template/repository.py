@@ -9,162 +9,139 @@
 TemplateRepository provides methods to manage template repositories.
 """
 
-import os
 from pathlib import Path
 from typing import List, Optional, Union
+
 from fastapi import UploadFile
 
-from vcti.wtf.env_vars import EnvVar
-from vcti.util.git_repository_manager import GitRepositoryManager
 from vcti.archive.zip_extractor import ZipExtractor
+from vcti.util.git_repository_manager import GitRepositoryManager
+from vcti.util.short_uid import ShortUID
 
 from .template import Template
-from .utils import create_unique_str
-
-
-DEFAULT_TEMPLATES_DIR_NAME = "templates"
 
 
 class TemplatesRepository:
     def __init__(
         self,
-        local_repo_path: Optional[Union[str, Path]] = None,
-        local_repo_env_var: str = EnvVar.DEFAULT_LOCAL_TEMPLATES_PATH,
-        parent_dir: Optional[Union[str, Path]] = None,
-        templates_dir_name: str = DEFAULT_TEMPLATES_DIR_NAME,
+        local_repo_path: Union[str, Path],
+        remote_repo_url: Optional[str] = None,
     ) -> None:
         """
-        Initialize the template repository manager with local path configuration.
-    
-        The local repository path is determined by the following precedence:
-        1. Explicit local_repo_path argument
-        2. Environment variable specified by local_repo_env_var
-        3. Derived from parent_dir/templates_dir_name
-    
+        Manages a local template repository.
+        If the local repository doesn't exist, it is cloned from a remote source.
+
         Args:
-            local_repo_path: Explicit path to the local repository
-            local_repo_env_var: Environment variable containing local repo path
-            parent_dir: Fallback parent directory if no path specified
-            templates_dir_name: Directory name for templates if deriving path
-        
+            local_repo_path (Union[str, Path]): Path to the local repository.
+            remote_repo_url (Optional[str]): Remote Git repository URL.
+
         Raises:
-            ValueError: If no valid local path could be determined
+            ValueError: If the local path is not provided or the remote is required but missing.
         """
-        repo_path = None
-        if local_repo_path:
-            repo_path = Path(local_repo_path).expanduser().resolve()
-        elif local_repo_env_var is not None:
-            env_value = os.getenv(local_repo_env_var)
-            if env_value is not None:
-                repo_path = Path(env_value).expanduser().resolve()
+        if not local_repo_path:
+            raise ValueError("Invalid local repository path. ")
 
-        if not repo_path:
-            parent_dir = Path(parent_dir).expanduser() if parent_dir else Path.cwd()
-            repo_path = parent_dir / templates_dir_name
-    
-        if not repo_path:
-            raise ValueError(
-                "Could not determine local repository path. "
-                "Must provide either: "
-                "1) local_repo_path, "
-                "2) valid local_repo_env_var, or "
-                "3) parent_dir"
-            )
+        self._repo_manager = GitRepositoryManager(
+            Path(local_repo_path).expanduser().resolve()
+        )
 
-        self._repo_manager = GitRepositoryManager(repo_path)
+        if not self._repo_manager.directory_path.exists():
+            if not remote_repo_url:
+                raise ValueError(
+                    "Local repository path does not exist and no remote repository URL was provided."
+                )
+            self._repo_manager.create_from_remote(remote_repo_url)
 
     @property
     def directory_path(self) -> Path:
+        """Returns the path to the local repository."""
         return self._repo_manager.directory_path
 
-    def initialize(self):
-        """
-        Clone a remote repository to the configured local path if local repository doesn't exist.
-        """
-        if not self.directory_path.exists():
-            self.create_directory()
-
-    def create_directory(
+    def get_template_path(
         self,
-        remote_repo_url: Optional[str] = None,
-        remote_repo_env_var: str = EnvVar.DEFAULT_REMOTE_TEMPLATES_REPO,
+        template_id: str,
+        is_new: bool = False,
     ) -> Path:
         """
-        Clone a remote repository to the configured local path.
-    
-        Args:
-            remote_repo_url: Direct URL to the remote repository
-            remote_repo_env_var: Environment variable containing remote URL
-        
-        Returns:
-            Path: Path to the cloned local repository
-        
-        Raises:
-            ValueError: If remote URL is not specified or local path exists
-            git.exc.GitCommandError: If clone operation fails
-        
-        Example:
-            >>> manager = TemplateRepositoryManager(local_repo_path="/path/to/repo")
-            >>> manager.create_repository("https://github.com/example/repo.git")
-        """
-        remote_repo_url = remote_repo_url or os.getenv(remote_repo_env_var)
-    
-        if not remote_repo_url:
-            raise ValueError(
-                "Remote repository URL must be specified either directly "
-                f"or through {remote_repo_env_var} environment variable"
-            )
-        
-        self._repo_manager.create_from_remote(remote_repo_url)
-        return self.directory_path
-    
-    def get_template(self, template_id: str) -> Template:
-        """Returns a Template object for the specified ID"""
-        template_path = self.directory_path / template_id
-        if not template_path.exists():
-            raise FileNotFoundError(f"Template not found: {template_id}")
-        return Template(template_path, self.directory_path)
+        Resolves the path to a template given its ID.
 
-    def create_template(self, archive: UploadFile) -> Template:
-        """Creates a new template from an uploaded archive"""
-        base_name = ""
-        if archive.filename:
-            base_name = Path(archive.filename).stem
-        template_id = base_name
-        
-        if (self.directory_path / template_id).exists():
-            template_id = f"{base_name}_{create_unique_str()}"
-        
-        target_dir = self.directory_path / template_id
-        target_dir.mkdir(parents=True, exist_ok=False)
-        
-        zip_extractor = ZipExtractor(archive, target_dir)
+        Args:
+            template_id (str): The ID (i.e., folder name) of the template.
+            is_new (bool): If True, does not check if the path exists.
+
+        Returns:
+            Path: Path to the template directory.
+
+        Raises:
+            FileNotFoundError: If the template does not exist and is_new is False.
+        """
+        template_path = (self.directory_path / template_id).resolve()
+
+        if not is_new and not template_path.exists():
+            raise FileNotFoundError(f"Template not found: {template_id}")
+
+        return template_path
+
+    def get_template(self, template_id: str) -> Template:
+        """
+        Returns a Template instance for the given template ID.
+
+        Args:
+            template_id (str): ID of the template.
+
+        Returns:
+            Template: Initialized template object.
+        """
+        return Template(self.get_template_path(template_id))
+
+    def create_template(
+        self,
+        archive: UploadFile,
+        prefix: str = "template",
+    ) -> Template:
+        """
+        Creates a new template from an uploaded ZIP archive.
+
+        Args:
+            archive (UploadFile): The uploaded ZIP archive.
+            prefix (str): Prefix for the new template ID.
+
+        Returns:
+            Template: Newly created Template instance.
+        """
+        base_name = Path(archive.filename).stem if archive.filename else prefix
+        template_id = f"{base_name}_{ShortUID.quick()}"
+
+        template_dir = self.get_template_path(template_id, is_new=True)
+        template_dir.mkdir(parents=True, exist_ok=False)
+
+        zip_extractor = ZipExtractor(archive, template_dir)
         zip_extractor.extract_using_bytesio()
 
-        return Template(target_dir, self.directory_path)
+        return Template(template_dir)
 
-    def list_templates(self) -> List['Template']:
+    def list_templates(self) -> List["Template"]:
         """
-        Retrieve all valid templates in the repository.
-        
+        Lists all valid templates in the local repository.
+        Skips directories that are not valid templates.
+
         Returns:
-            List[Template]: List of initialized Template objects for valid templates.
-            Only includes directories that successfully parse as templates.
-            
-        Note:
-            Silently skips directories that don't meet template requirements.
-            Logs warnings for problematic templates.
-            
-        Example:
+            List[Template]: Templates that pass validation.
+
+        Usage:
             >>> repo = TemplateRepository("/path/to/repo")
             >>> templates = repo.list_templates()
             >>> [t.name for t in templates]
-            ['static-analysis-template', 'modal_analysis-template']
+            ['static-analysis-a03xb', 'modal_analysis-b04xc', ...]
         """
-        valid_templates = []
-        for template_dir in self.directory_path.iterdir():
-            if template_dir.is_dir():
-                template = Template(template_dir, self.directory_path)
-                if template.has_info_file(): # The subdirectory is a template folder
-                    valid_templates.append(template)
-        return valid_templates
+        templates = []
+
+        for entry in self.directory_path.iterdir():
+            if not entry.is_dir():
+                continue
+
+            template = Template(entry)
+            if template.workflow_nodes.is_valid():
+                templates.append(template)
+
+        return templates
